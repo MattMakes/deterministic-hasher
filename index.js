@@ -1,83 +1,171 @@
-const seedrandom = require('seedrandom')
+const { compose } = require('ramda')
 const crypto = require('crypto')
+const faker = require('faker')
 
-const emailToRandomize = seedrandom('firstname.lastname@gmail.com')
-console.log(emailToRandomize()) // first seeded execution is always the same
-// 0.6648336373678267
-// 0.12000885980388516
-const phoneNumberToRandomize = seedrandom('999-123-4567')
-console.log(phoneNumberToRandomize()) //0.12000885980388516
+const _applyCasing = (opts) => {
+  const { casing, output } = opts
+  if (!casing) return opts
 
-const NUM_SEEDS = '0123456789'
-const HEX_SEEDS = `abcdef${NUM_SEEDS}`
-const ALPHABET_SEEDS = 'abcdefghijklmnopqrstuvwxyz'
-
-const generateRandomSeedPickFunc = (seeds) => {
-  const sampleIndex = Math.floor(Math.random() * Math.floor(seeds.length))
-  return seeds[sampleIndex]
+  switch (casing.toLowerCase()) {
+    case 'l':
+    case 'lowercase':
+      opts.output = output.toString().toLowerCase()
+      break
+    case 'u':
+    case 'uppercase':
+      opts.output = output.toString().toUpperCase()
+      break
+    default:
+      break
+  }
+  return opts
 }
 
-const gen = ({
-  mask = null,
-  casing = null,
-}) => {
-  let randomFunc
-  switch (givenSeedType) {
+const _applyLength = (opts) => {
+  const { length, output } = opts
+  if (!length) return opts
+
+  opts.output = output.substring(0, length)
+  return opts
+}
+
+const _applyMask = (opts) => {
+  const { mask, output } = opts
+
+  if (!mask) return opts
+
+  let replacement = ''
+  for (var maskIndex = 0, subIndex = 0; maskIndex < mask.length && subIndex < output.length; maskIndex++) {
+    replacement += mask.charAt(maskIndex) == 'X' ? output.charAt(subIndex++) : mask.charAt(maskIndex)
+  }
+
+  opts.output = replacement
+  return opts
+}
+
+const _randomNumber = (min, max) => {
+  return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+const _hash = (opts) => {
+  const { val, type } = opts
+  const lowerType = type.toLowerCase()
+  faker.seed(val)
+  switch (lowerType) {
     case 'email':
-      randomFunc = () => Math.floor(Math.random() * Math.floor(10))
+    case 'congregationbranchemail':
+    case 'congregationotheremail':
+    case 'staffemail':
+      opts.output = `${crypto.createHash('sha256').update(val).digest('base64')}@example.com`
       break
-    case 'number':
-      randomFunc = () => Math.floor(Math.random() * Math.floor(10))
+    case 'congregationname':
+      opts.output = crypto.createHash('sha256').update(val).digest('base64')
       break
-    case 'base64': 
-      randomFunc = () => 
-    case 'guid':
-      randomFunc = () => generateRandomSeedPickFunc(HEX_SEEDS)
+    case 'phone':
+    case 'mobile':
+    case 'staffphone':
+    case 'emergencycontactnumber':
+      const tempVal = val.toString().replace(/\D/g, '')
+      faker.seed(parseInt(tempVal))
+      opts.output = faker.phone.phoneNumber().toString().replace(/\D/g, '')
       break
-    case 'alphabet': {
-
+    case 'name':
+    case 'lastname':
+    case 'firstname':
+    case 'applicantvolunteer':
+    case 'overseer':
+    case 'admin':
+    case 'literatureservant':
+    case 'correspondencefrom':
+    case 'documentowner':
+    case 'author':
+    case 'staffname':
+    case 'volunteer':
+    case 'volassigned':
+    case 'creator':
+    case 'emergencycontact':
+    case 'applicantvolunteer':
+      opts.output = faker.name.findName()
       break
-    }
-    default: {
-
-    }
+    case 'username':
+      opts.output = faker.internet.userName()
+    case 'password':
+      opts.output = faker.internet.password()
+    case 'birthdate':
+      opts.output = faker.date.past(_randomNumber(21, 80))
+    case 'pozip':
+    case 'zip':
+      opts.output = faker.address.zipCode()
+    case 'street':
+      opts.output = faker.address.streetName()
+    case 'address':
+      opts.output = faker.address.streetAddress()
+    case 'postate':
+    case 'state':
+      opts.output = faker.address.state()
+    case 'poCity':
+    case 'city':
+      opts.output = faker.address.city()
+    case 'notes':
+    case 'comments':
+      opts.output = faker.lorem.sentences(_randomNumber(1, 7))
+    default:
+      throw new Error(`Unsupported hash type provided: ${type}`)
   }
-  const generatedToken = Array.from({ length }, randomFunc).join('')
-  if (casing === 'u' || casing === 'upper') {
-    generatedToken = generatedToken.toUpperCase()
-  } else if (casing === 'l' || casing === 'lower') {
-    generatedToken = generatedToken.toLowerCase()
-  }
-  return generatedToken
+  return opts
 }
 
-const hash = crypto.createHash('sha256').update('val').digest('base64');
-console.log({hash})
+class DeterministicHasher {
+  constructor(log = null, shouldThrowErr = true) {
+    this.shouldThrowErr = shouldThrowErr
+    this.hasLogger = false
+    if (log) {
+      this.log = log
+      this.hasLogger = true
+    }
+  }
 
-module.exports = RandomToken = {
-  gen: ({
-    length = DEFAULT_TOKEN_SIZE,
-    seed = null,
-    casing = null,
-    friendly = false,
-    mask = null,
-  }) => genToken({
-    length, seed, casing, mask, friendly,
-  })
+  hash({
+    val,
+    type,
+    mask,
+    length,
+    casing,
+  }) {
+    try {
+      if (!val) {
+        throw new Error('val must be provided')
+      }
+
+      if (!type) {
+        throw new Error('type must be provided')
+      }
+
+      const initialOutput = ''
+      const opts = {
+        val,
+        type,
+        mask,
+        length,
+        casing,
+        output: initialOutput
+      }
+
+      const applyHashTo = compose(_applyCasing, _applyLength, _applyMask, _hash)
+
+      const { output } = applyHashTo(opts)
+
+      return output
+    } catch (ex) {
+      if (this.hasLogger) {
+        this.log(ex)
+      }
+
+      if (this.shouldThrowErr) {
+        throw ex
+      }
+    }
+  }
 }
 
-// A utility that
-// For emails:
-// determine({ val: 'first.last@gmail.com', type: 'email', (optional) length: val.length, (optional) casing: 'l' || 'u' })
-
-// For phone numbers:
-// determine({ val: '(623) 341-4623', type: 'phone', (optional) mask: '(XXX) XXX-XXXX', (optional) length: val.length, (optional) casing: 'l' || 'u' })
-// determine({ val: '(623)341-4623', type: 'phone', (optional) mask: '(XXX) XXX-XXXX', (optional) length: val.length, (optional) casing: 'l' || 'u' })
-// determine({ val: '623-341-4623', type: 'phone', (optional) mask: '(XXX) XXX-XXXX', (optional) length: val.length, (optional) casing: 'l' || 'u' })
-// determine({ val: '6233414623', type: 'phone', (optional) mask: '(XXX) XXX-XXXX', (optional) length: val.length, (optional) casing: 'l' || 'u' })
-// determine({ val: '16233414623', type: 'phone', (optional) mask: '(XXX) XXX-XXXX', (optional) length: val.length, (optional) casing: 'l' || 'u' })
-
-// For any base64:
-// determine ({ val: 'any string of any length', type: 'base64', (optional) mask: undefined, (optional) length: val.length, (optional) casing: 'l' || 'u' })
-
-// const determine, { TYPES } from '@ga/determine'
+module.exports = DeterministicHasher
